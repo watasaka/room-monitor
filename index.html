@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>実習室 使用状況モニター</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .status-bar {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #7f8c8d;
+            font-size: 0.9em;
+            height: 20px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .room-card {
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .room-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        .status {
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        .status span {
+            font-weight: bold;
+        }
+        .status.in-use span {
+            color: #e74c3c;
+        }
+        .status.empty span {
+            color: #2ecc71;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            transition: background-color 0.3s;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .btn-enter { background-color: #3498db; }
+        .btn-enter:hover:not(:disabled) { background-color: #2980b9; }
+        .btn-leave { background-color: #95a5a6; width: 100%; margin-top: 10px; }
+        .btn-leave:hover:not(:disabled) { background-color: #7f8c8d; }
+        
+        /* 読み込み中のスピナー */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <h1>実習室 使用状況モニター</h1>
+    <div class="status-bar" id="status-message">
+        <span class="loader"></span>最新のデータを読み込み中...
+    </div>
+    
+    <div class="container" id="room-container">
+        <!-- JavaScriptで生成 -->
+    </div>
+
+    <script>
+        // ★★★ ここに先ほどコピーしたGASのウェブアプリURLを貼り付けます ★★★
+        const GAS_URL = "https://script.google.com/macros/s/ここにURLを貼り付けます/exec";
+
+        const rooms = [
+            '材料', '原動', '鋳造', '旋盤', '特機', 
+            'PC', 'CAD', 'CNC', 'CNC横', '会議室', 
+            '小会議', '製図', '特①', '制御'
+        ];
+
+        let roomData = {};
+        let isProcessing = true;
+        const container = document.getElementById('room-container');
+        const statusMessage = document.getElementById('status-message');
+
+        // データを取得する
+        async function fetchData() {
+            if(!isProcessing) showStatus("最新のデータを読み込み中...", true);
+            try {
+                const response = await fetch(GAS_URL);
+                roomData = await response.json();
+                showStatus("最新のデータに更新しました", false);
+                render();
+            } catch (error) {
+                showStatus("データの取得に失敗しました", false);
+                console.error("Error:", error);
+            }
+        }
+
+        // 部屋の状況を更新する（使用開始 / 退出）
+        async function updateRoom(room, user) {
+            isProcessing = true;
+            render(); // ボタンを無効化して連打防止
+            showStatus("データを更新中...", true);
+
+            try {
+                // URLパラメータに部屋名とユーザー名を付けて送信
+                const targetUrl = `${GAS_URL}?room=${encodeURIComponent(room)}&user=${encodeURIComponent(user)}`;
+                const response = await fetch(targetUrl);
+                roomData = await response.json(); // 更新後の最新データが返ってくる
+                showStatus("更新が完了しました", false);
+            } catch (error) {
+                showStatus("更新に失敗しました", false);
+                alert("通信エラーが発生しました。");
+            } finally {
+                isProcessing = false;
+                render();
+            }
+        }
+
+        // 使用開始ボタン
+        function enterRoom(room) {
+            const input = document.getElementById(`input-${room}`);
+            const name = input.value.trim();
+            if (name === "") {
+                alert("名前を入力してください。");
+                return;
+            }
+            updateRoom(room, name);
+        }
+
+        // 使用終了ボタン
+        function leaveRoom(room) {
+            if (confirm(`${room}の使用を終了しますか？`)) {
+                updateRoom(room, "");
+            }
+        }
+
+        // ステータスメッセージの表示
+        function showStatus(text, showLoader) {
+            statusMessage.innerHTML = showLoader ? `<span class="loader"></span>${text}` : text;
+        }
+
+        // 画面の描画
+        function render() {
+            container.innerHTML = '';
+            
+            rooms.forEach(room => {
+                const user = roomData[room] || "";
+                const isUsing = user !== "";
+
+                const card = document.createElement('div');
+                card.className = 'room-card';
+
+                card.innerHTML = `
+                    <div>
+                        <div class="room-name">${room}</div>
+                        <div class="status ${isUsing ? 'in-use' : 'empty'}">
+                            状況: <span>${isUsing ? user + ' さんが使用中' : '空室'}</span>
+                        </div>
+                    </div>
+                    <div>
+                        ${!isUsing ? `
+                            <div class="input-group">
+                                <input type="text" id="input-${room}" placeholder="名前を入力" ${isProcessing ? 'disabled' : ''}>
+                                <button class="btn-enter" onclick="enterRoom('${room}')" ${isProcessing ? 'disabled' : ''}>使用開始</button>
+                            </div>
+                        ` : `
+                            <button class="btn-leave" onclick="leaveRoom('${room}')" ${isProcessing ? 'disabled' : ''}>使用終了 (退出)</button>
+                        `}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 初回読み込み
+        fetchData().then(() => {
+            isProcessing = false;
+            render();
+        });
+
+        // 10秒ごとに自動で最新データを取得（他の人が更新した内容を反映させるため）
+        setInterval(() => {
+            if (!isProcessing) {
+                fetchData();
+            }
+        }, 10000);
+
+    </script>
+</body>
+</html>
